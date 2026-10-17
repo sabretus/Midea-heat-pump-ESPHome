@@ -65,50 +65,108 @@ esphome:
     version: 10.0.0
 
 esp32:
-  board: esp32dev
+  board: esp-wrover-kit
   framework:
     type: esp-idf
 
 # Enable logging
 logger:
   level: INFO
+  # level: VERBOSE
+  # logs:
+  #   modbus: VERBOSE
+  #   modbus_controller: VERBOSE
   baud_rate: 0
 
 # Enable Home Assistant API
 api:
+  reboot_timeout: 60min
+  encryption:
+    key: !secret heatpump_api_key
+  on_client_connected:
+    then:
+      - script.execute: pulse_net_led
+  on_client_disconnected:
+    then:
+      - script.execute: pulse_net_led
 
 web_server:
   port: 80
   version: 3
+  auth:
+    username: admin
+    password: !secret admin_password
 
 ota:
   platform: esphome
+
+
+# 1) Define the LED as a GPIO output
+output:
+  - platform: gpio
+    id: activity_led
+    pin:
+      number: 13 
+
+# 2) A script that blinks the LED until stopped
+script:
+  - id: pulse_net_led
+    mode: restart
+    then:
+      - output.turn_on: activity_led
+      - delay: 120ms
+      - output.turn_off: activity_led
+
+  - id: pulse_modbus_led
+    mode: restart
+    then:
+      - output.turn_on: activity_led
+      - delay: 40ms
+      - output.turn_off: activity_led
+  - id: slow_connect_blink
+    mode: restart
+    then:
+      - while:
+          condition:
+            not:
+              wifi.connected:
+          then:
+            - output.turn_on: activity_led
+            - delay: 300ms
+            - output.turn_off: activity_led
+            - delay: 300ms
 
 wifi:
   power_save_mode: none
   ap:
     ssid: "${devicename}-setup"
-    password: "heatpump"
+    password: !secret wifi_ap_password
+  on_connect:
+    - script.stop: slow_connect_blink
+    - output.turn_off: activity_led
+  on_disconnect:
+    - script.execute: slow_connect_blink
 
 captive_portal:
 
 uart:
   id: mod_bus
-  tx_pin: 17
-  rx_pin: 16
+  tx_pin: 32
+  rx_pin: 33
   baud_rate: 9600
   stop_bits: 1
 
 modbus:
-  flow_control_pin: 5
+  # flow_control_pin: 25
   id: heatpump_modbus
+  uart_id: mod_bus
 
 modbus_controller:
   - id: "${devicename}"
     address: 0x1
     modbus_id: heatpump_modbus
     setup_priority: -10
-    update_interval: 10s
+    update_interval: 30s
 
 select:
   - platform: modbus_controller
@@ -359,6 +417,13 @@ select:
       return {};
 
 sensor:
+  - platform: wifi_signal
+    name: "WiFi RSSI"
+    update_interval: 5s
+    on_value:
+      then:
+        - script.execute: pulse_net_led
+
   - platform: template
     name: "Compressor Starts Per Hour"
     id: compressor_starts_per_hour
@@ -1679,10 +1744,10 @@ binary_sensor:
       }
 
 switch:
-  - platform: factory_reset
-    name: Restart with Factory Default Settings
-    id: "${devicename}_restart_with_factory_default_settings"
-    icon: mdi:restart-alert
+  # - platform: factory_reset
+  #   name: Restart with Factory Default Settings
+  #   id: "${devicename}_restart_with_factory_default_settings"
+  #   icon: mdi:restart-alert
   - platform: template
     name: "Room Temperature Control"
     id: "${devicename}_room_temperature_control"
@@ -1869,6 +1934,37 @@ switch:
             // ESP_LOGD("unmasked_value_register_5", "Set option to off f_s_silent_mode 0x%x -> 0x%x", id(unmasked_value_register_5), new_value);
             id(unmasked_value_register_5) = new_value;
             esphome::modbus_controller::ModbusCommandItem set_payload_command = esphome::modbus_controller::ModbusCommandItem::create_write_single_command(${devicename}, 0x5, new_value);
+            ${devicename}->queue_command(set_payload_command);
+          }
+  - platform: template
+    name: "Silent Mode Level"
+    id: "${devicename}_silent_mode_level"
+    icon: mdi:eye
+    entity_category: config
+    restore_mode: DISABLED
+    optimistic: true
+    lambda: "return (id(unmasked_value_register_5) & 0x80) == 0x80;"
+    on_turn_on:
+      - lambda: |-
+          uint16_t checked_bit = 0x80;
+          uint16_t new_value = id(unmasked_value_register_5);  // The original unmasked value
+          new_value &= ~checked_bit;                           // Clear and set
+          new_value += checked_bit;
+          if ((new_value) != id(unmasked_value_register_5)) {
+            // ESP_LOGD("unmasked_value_register_5", "Set option to on f_s_silent_mode_level 0x%x -> 0x%x", id(unmasked_value_register_5), new_value);
+            id(unmasked_value_register_5) = new_value;
+            esphome::modbus_controller::ModbusCommandItem set_payload_command = esphome::modbus_controller::ModbusCommandItem::create_write_single_command(${devicename}, 5, new_value);
+            ${devicename}->queue_command(set_payload_command);
+          }
+    on_turn_off:
+      - lambda: |-
+          uint16_t checked_bit = 0x80;
+          uint16_t new_value = id(unmasked_value_register_5);  // The original unmasked value
+          new_value &= ~checked_bit;                           // Clear and set
+          if ((new_value) != id(unmasked_value_register_5)) {
+            // ESP_LOGD("unmasked_value_register_5", "Set option to off f_s_silent_mode_level 0x%x -> 0x%x", id(unmasked_value_register_5), new_value);
+            id(unmasked_value_register_5) = new_value;
+            esphome::modbus_controller::ModbusCommandItem set_payload_command = esphome::modbus_controller::ModbusCommandItem::create_write_single_command(${devicename}, 5, new_value);
             ${devicename}->queue_command(set_payload_command);
           }
   - platform: template
