@@ -1921,37 +1921,6 @@ switch:
             ${devicename}->queue_command(set_payload_command);
           }
   - platform: template
-    name: "Silent Mode Level"
-    id: "${devicename}_silent_mode_level"
-    icon: mdi:eye
-    entity_category: config
-    restore_mode: DISABLED
-    optimistic: true
-    lambda: "return (id(unmasked_value_register_5) & 0x80) == 0x80;"
-    on_turn_on:
-      - lambda: |-
-          uint16_t checked_bit = 0x80;
-          uint16_t new_value = id(unmasked_value_register_5);  // The original unmasked value
-          new_value &= ~checked_bit;                           // Clear and set
-          new_value += checked_bit;
-          if ((new_value) != id(unmasked_value_register_5)) {
-            // ESP_LOGD("unmasked_value_register_5", "Set option to on f_s_silent_mode_level 0x%x -> 0x%x", id(unmasked_value_register_5), new_value);
-            id(unmasked_value_register_5) = new_value;
-            esphome::modbus_controller::ModbusCommandItem set_payload_command = esphome::modbus_controller::ModbusCommandItem::create_write_single_command(${devicename}, 5, new_value);
-            ${devicename}->queue_command(set_payload_command);
-          }
-    on_turn_off:
-      - lambda: |-
-          uint16_t checked_bit = 0x80;
-          uint16_t new_value = id(unmasked_value_register_5);  // The original unmasked value
-          new_value &= ~checked_bit;                           // Clear and set
-          if ((new_value) != id(unmasked_value_register_5)) {
-            // ESP_LOGD("unmasked_value_register_5", "Set option to off f_s_silent_mode_level 0x%x -> 0x%x", id(unmasked_value_register_5), new_value);
-            id(unmasked_value_register_5) = new_value;
-            esphome::modbus_controller::ModbusCommandItem set_payload_command = esphome::modbus_controller::ModbusCommandItem::create_write_single_command(${devicename}, 5, new_value);
-            ${devicename}->queue_command(set_payload_command);
-          }
-  - platform: template
     name: "Holiday Home"
     id: "${devicename}_holiday_home"
     icon: mdi:eye
